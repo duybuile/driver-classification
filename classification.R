@@ -57,6 +57,8 @@ createDataForClass <- function(trip_data){
 
 t <- createDataForClass(trip_data)
 
+save(t, file = "data_for_classification.Rdata")
+
 quantile(t$total_trip, seq(0.1, 1, 0.1))
 
 # Remove any customers who have less than 20 trips in total
@@ -75,4 +77,4 @@ all_profile_scores <- subset(all_profile_scores, all_profile_scores$profile_id %
                                aggregate(profile_id ~ driver_id, all_profile_scores, FUN = max)$profile_id &
                                all_profile_scores$aggregated_distance >= MIN.AGG.DST)
 
-
+save(all_profile_scores, file = "all_profile_scores.Rdata")
