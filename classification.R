@@ -1,5 +1,5 @@
 
-setwd("P:/Duy/R/Chillidrive Analysis/")
+setwd("C:/Users/duy.bui/Documents/GitHub/driver-classification/")
 
 source("P:/Duy/R/Chillidrive Analysis/connect_to_MySQL.R")
 
@@ -78,3 +78,16 @@ all_profile_scores <- subset(all_profile_scores, all_profile_scores$profile_id %
                                all_profile_scores$aggregated_distance >= MIN.AGG.DST)
 
 save(all_profile_scores, file = "all_profile_scores.Rdata")
+
+#--------------
+load("all_profile_scores.Rdata")
+load("data_for_classification.Rdata")
+
+m <- merge(x = all_profile_scores, y = t, by.x = "driver_id", by.y = "driver_id")
+
+# Take a quantile
+quantile(m$total_trip, seq(0.1, 1, 0.1))
+# 10% is equal to 24 trips
+
+m <- subset(m, m$total_trip > 20)
+
