@@ -105,6 +105,10 @@ setwd("C:/Users/duy.bui/Documents/GitHub/driver-classification/")
 load("all_profile_scores.Rdata")
 load("data_for_classification.Rdata")
 
+library(rpart)
+
+'/USE CART from rpart to find the relavant features'
+
 m <- merge(x = all_profile_scores, y = t, by.x = "driver_id", by.y = "driver_id")
 
 # Take a quantile
