@@ -99,6 +99,7 @@ save(all_profile_scores, file = "all_profile_scores.Rdata")
 
 library(lubridate)
 library(rpart)
+library(randomForest)
 source("P:/Duy/R/Chillidrive Analysis/connect_to_MySQL.R")
 setwd("C:/Users/duy.bui/Documents/GitHub/driver-classification/")
 
@@ -143,3 +144,10 @@ fit <- rpart(final_score ~ ratio + total_trip, method = "anova", data=m)
 printcp(fit) # display the results 
 plotcp(fit) # visualize cross-validation results 
 summary(fit) # detailed summary of splits
+
+# 3. Random forests
+set.seed(10)
+m$driver_type <- as.factor(m$driver_type) # convert to factor
+fit <- randomForest(driver_type ~ acceleration + braking + cornering + speeding + ratio + distance, data=m, importance=TRUE, proximity=TRUE)
+round(importance(fit), 2)
+print(fit)
