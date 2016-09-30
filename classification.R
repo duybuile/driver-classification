@@ -77,9 +77,10 @@ quantile(t$total_trip, seq(0.1, 1, 0.1))
 
 # Remove any customers who have less than 20 trips in total
 
-sql = "SELECT profile_id, driver_id, policy_distance, score, acceleration, braking, cornering, speeding, date, aggregated_distance
+sql = "SELECT profile_id, policy_id, driver_id, policy_distance, score, acceleration, braking, cornering, speeding, date, aggregated_distance, dob, gender
 FROM profiles
-INNER JOIN profile_sub_scores on profiles.sub_scores_id = profile_sub_scores.id"
+INNER JOIN profile_sub_scores on profiles.sub_scores_id = profile_sub_scores.id
+INNER JOIN user_profiles ON profiles.driver_id = user_profiles.id;"
 
 all_profile_scores <- getDataFromTelematics(sql)
 
@@ -100,6 +101,8 @@ save(all_profile_scores, file = "all_profile_scores.Rdata")
 library(lubridate)
 library(rpart)
 library(randomForest)
+library(VSURF)
+library(caret)
 source("P:/Duy/R/Chillidrive Analysis/connect_to_MySQL.R")
 setwd("C:/Users/duy.bui/Documents/GitHub/driver-classification/")
 
@@ -111,6 +114,21 @@ library(rpart)
 '/USE CART from rpart to find the relavant features'
 
 m <- merge(x = all_profile_scores, y = t, by.x = "driver_id", by.y = "driver_id")
+m <- subset(m, !is.na(m$dob) & !is.na(m$gender))
+
+age = function(from, to = Sys.Date()) {
+  from_lt = as.POSIXlt(from)
+  to_lt = as.POSIXlt(to)
+  
+  age = to_lt$year - from_lt$year
+  
+  ifelse(to_lt$mon < from_lt$mon |
+           (to_lt$mon == from_lt$mon & to_lt$mday < from_lt$mday),
+         age - 1, age)
+}
+
+m$age <- age(m$dob)
+m$gender <- as.factor(m$gender)
 
 # Take a quantile
 quantile(m$total_trip, seq(0.1, 1, 0.1))
@@ -122,14 +140,21 @@ m <- subset(m, m$total_trip > 20)
 - Final score: over 60 as good, 30 to 60 as average, lower than 30 as bad'
 
 m$driver_type = ""
-m[m$final_score > 70, "driver_type"] = "good"
-m[m$final_score > 50 & m$final_score <=70, "driver_type"] = "average"
-m[m$final_score <= 50, "driver_type"] = "bad"
+m[m$final_score >= 80, "driver_type"] = "excellent"
+m[m$final_score >= 50 & m$final_score <80, "driver_type"] = "good"
+m[m$final_score >= 30 & m$final_score <50, "driver_type"] = "average"
+m[m$final_score < 30, "driver_type"] = "bad"
+
+m$driver_type <- as.factor(m$driver_type) # convert to factor
 
 table(m$driver_type)
 
+par(mfrow= c(1, 2))
+plot(m$total_trip, xlab = "", ylab = "Total trips")
+plot(m$ratio, xlab = "", ylab = "Ratio of daytime over night time driving", ylim = c(0, 50))
+
 #-----------------
-# Regression and classification
+# Regression and classification - NOT USING THIS PART ANYMORE
 
 # 1. Classification
 fit <- rpart(driver_type ~ ratio, method="class", data=m)
@@ -147,7 +172,127 @@ summary(fit) # detailed summary of splits
 
 # 3. Random forests
 set.seed(10)
-m$driver_type <- as.factor(m$driver_type) # convert to factor
-fit <- randomForest(driver_type ~ acceleration + braking + cornering + speeding + ratio + distance, data=m, importance=TRUE, proximity=TRUE)
+fit <- randomForest(driver_type ~ acceleration + braking + cornering + speeding, data=m, importance=TRUE, proximity=TRUE)
+fit <- randomForest(driver_type ~ ratio + total_trip, data=m, importance=TRUE, proximity=TRUE)
+fit <- randomForest(driver_type ~ ratio + total_trip +  age, data=m, importance=TRUE, proximity=TRUE)
 round(importance(fit), 2)
 print(fit)
+
+#-------------------
+set.seed(10)
+inTrain <- createDataPartition(y = m$driver_type, p = 0.7, list = FALSE)
+training <- m[inTrain,]
+testing <- m[-inTrain,]
+
+modFit <- train(driver_type ~ ratio + total_trip +  age, data = m, importance = T, proximity = T, method = "rf")
+modFit
+modFit2 <- train(driver_type ~ ratio + total_trip, data = m, importance = T, proximity = T, method = "rf")
+modFit2
+
+predicted <- predict(modFit, newdata = training)
+table(predicted == training$driver_type)
+
+predicted2 <- predict(modFit, newdata = testing)
+table(predicted2 == testing$driver_type)
+
+confusionMatrix(table(predicted, training$driver_type))$overall
+confusionMatrix(table(predicted2, testing$driver_type))$overall
+#--------
+predicted <- predict(modFit2, newdata = training)
+table(predicted == training$driver_type)
+
+predicted2 <- predict(modFit2, newdata = testing)
+table(predicted2 == testing$driver_type)
+
+confusionMatrix(table(predicted, training$driver_type))$overall
+confusionMatrix(table(predicted2, testing$driver_type))$overall
+
+#-----------
+load("employment.Rdata")
+t <- merge(x = m, y = employment_status, by.x = "policy_id", by.y = "policy_id", all.x = T)
+t$employment_status_ft <- as.factor(t$employment_status_ft)
+t <- subset(t, !is.na(t$employment_status_ft))
+set.seed(10)
+inTrain <- createDataPartition(y = t$driver_type, p = 0.7, list = FALSE)
+training <- t[inTrain,]
+testing <- t[-inTrain,]
+modFit3 <- train(driver_type ~ age + gender + employment_status_ft, data = t, importance = T, proximity = T, method = "rf")
+modFit3
+predicted <- predict(modFit3, newdata = training)
+table(predicted == training$driver_type)
+
+predicted2 <- predict(modFit3, newdata = testing)
+table(predicted2 == testing$driver_type)
+
+confusionMatrix(table(predicted, training$driver_type))$overall
+confusionMatrix(table(predicted2, testing$driver_type))$overall
+
+varImp(modFit)
+importance(modFit$finalModel)
+print(modFit$finalModel)
+
+varImp(modFit2)
+importance(modFit2$finalModel)
+print(modFit2$finalModel)
+
+varImp(modFit3)
+importance(modFit3$finalModel)
+print(modFit3$finalModel)
+
+#importance(predicted)
+#class(modFit$)
+
+# Data visualisation
+#### PERSONAL INFORMATION DATASET
+table(t$age)
+table(t$gender)
+table(t$employment_status_ft)
+table(t$driver_type)
+
+#### TELEMATICS INFORMATION DATASET
+
+
+#### HYBRID INFORMATION DATASET
+library(graphics)
+
+par(mfrow= c(1, 2))
+layout(matrix(c(1,1,2,3), 2, 2, byrow = TRUE))
+plot(t$age, ylim = c(16,50), main = "Age distribution", ylab = "Age")
+plot(t$gender, ylim = c(0, 800), main = "Gender distribution")
+plot(t$employment_status_ft, ylim = c(0, 1000), main = "Employment distribution")
+piedat <- as.data.frame(table(t$driver_type))
+pie(piedat$Freq, labels = piedat$Var1, main="Driver type distribution")
+
+par(mfrow= c(1, 2))
+plot(modFit, log = "y")
+plot(modFit2, log = "y")
+plot(modFit3, log = "y")
+
+
+ggplot(t, aes(x=age)) +
+  geom_line(aes(y=..density..), binwidth=.5, colour="black", fill="white") +
+  geom_vline(aes(xintercept=mean(age, na.rm=T)),   # Ignore NA values for mean
+             color="red", linetype="dashed", size=1) +
+  geom_density(alpha=.2, fill="#FF6666")
+
+ggplot(data=t, aes(x=gender, y=driver_type, fill=gender)) +
+  geom_bar(colour="black", stat="identity")
+
+# 4. Gradient boosting tree
+library(gbm)
+set.seed(10)
+fit <- gbm(driver_type ~ ratio + total_trip +  age, data=m, distribution = "multinomial")
+print(fit)
+gbm.perf(fit)
+
+# Variable Selection for Random Forest
+set.seed(10)
+var.selection <- VSURF(x = subset(m, select = c("policy_distance", "gender", "distance", "ratio", "total_trip", "age")),
+                       y = m$driver_type, mtry = 100)
+names(var.selection)
+summary(var.selection)
+plot(var.selection)
+
+var.selection$varselect.thres
+var.selection$varselect.pred
+var.selection$varselect.interp
